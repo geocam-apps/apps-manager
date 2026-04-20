@@ -21,6 +21,7 @@ def _migrate():
         conn = sqlite3.connect(db_path)
         for stmt in [
             "ALTER TABLE app ADD COLUMN admin_token TEXT",
+            "ALTER TABLE app ADD COLUMN ssh_port INTEGER",
         ]:
             try:
                 conn.execute(stmt)

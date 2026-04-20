@@ -27,6 +27,7 @@ class App(SQLModel, table=True):
     tunnel_id: Optional[str] = None
     github_repo: Optional[str] = None
     error_message: Optional[str] = None
+    ssh_port: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     owner: Optional[User] = Relationship(back_populates="apps")

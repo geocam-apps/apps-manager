@@ -5,7 +5,8 @@
       style="padding:0 24px;height:60px;display:flex;align-items:center;gap:16px;background:#16161a"
     >
       <n-button text @click="$router.push('/')">← Back</n-button>
-      <n-text style="font-size:20px;font-weight:700;color:#6366f1">{{ app?.name || 'Loading...' }}</n-text>
+      <img src="/geocam-logo.png" style="height:28px;width:auto;object-fit:contain" alt="Geocam" />
+      <n-text style="font-size:18px;font-weight:600;color:#a5b4fc">{{ app?.name || 'Loading...' }}</n-text>
     </n-layout-header>
 
     <div style="max-width:960px;margin:0 auto;padding:32px 24px">
@@ -16,7 +17,26 @@
           <span v-if="app.error_message"> — {{ app.error_message }}</span>
         </n-alert>
 
-        <n-grid :x-gap="16" :y-gap="16" :cols="2">
+        <!-- Destroy progress (replaces everything while destroying) -->
+        <template v-if="app.status === 'destroying'">
+          <n-card title="Destroying App..." :bordered="false" style="background:#1c1c23;border-radius:12px;border:1px solid #4a1f1f;margin-bottom:24px">
+            <n-space align="center" style="margin-bottom:16px">
+              <n-spin size="small" />
+              <n-text depth="2" style="font-size:13px">Removing container, tunnel, DNS, and GitHub repo...</n-text>
+            </n-space>
+            <n-timeline size="small">
+              <n-timeline-item
+                v-for="step in destroySteps"
+                :key="step.step"
+                :type="step.status === 'done' ? 'success' : step.status === 'error' ? 'error' : 'info'"
+                :title="step.label"
+                :content="step.message"
+              />
+            </n-timeline>
+          </n-card>
+        </template>
+
+        <n-grid v-else :x-gap="16" :y-gap="16" :cols="2">
           <!-- Info -->
           <n-gi>
             <n-card title="Info" :bordered="false" style="background:#1c1c23;border-radius:12px">
@@ -40,6 +60,7 @@
                   <n-text depth="3" style="min-width:80px">Password:</n-text>
                   <n-tag v-if="showPassword" style="font-family:monospace">{{ app.password }}</n-tag>
                   <n-button v-else text size="small" @click="showPassword = true">Show</n-button>
+                  <n-button v-if="showPassword" text size="small" @click="copyToClipboard(app.password)">Copy</n-button>
                   <n-button v-if="isOwnerOrAdmin" text size="small" @click="handleChangePassword" :loading="changingPw">Regenerate</n-button>
                 </n-space>
 
@@ -54,11 +75,37 @@
                   Sent to container as APP_ADMIN_TOKEN env var
                 </n-text>
 
+                <!-- SSH access -->
+                <div v-if="app.ssh_command">
+                  <n-text depth="3" style="font-size:12px;display:block;margin-bottom:6px">SSH (native client):</n-text>
+                  <n-space align="center" style="margin-bottom:4px">
+                    <n-tag style="font-family:monospace;font-size:12px">{{ app.ssh_command }}</n-tag>
+                    <n-button text size="small" @click="copyToClipboard(app.ssh_command)">Copy</n-button>
+                  </n-space>
+                  <n-collapse>
+                    <n-collapse-item title="If SSH doesn't resolve, use Cloudflare tunnel" name="cf-ssh">
+                      <n-text depth="3" style="font-size:12px;display:block;margin-bottom:6px">
+                        Install cloudflared once: <n-tag size="small" style="font-family:monospace">brew install cloudflare/cloudflare/cloudflared</n-tag>
+                      </n-text>
+                      <n-text depth="3" style="font-size:12px;display:block;margin-bottom:4px">Then add to ~/.ssh/config:</n-text>
+                      <n-space align="center">
+                        <n-tag style="font-family:monospace;font-size:11px">Host *.geocam.io</n-tag>
+                      </n-space>
+                      <n-space align="center" style="margin-top:2px">
+                        <n-tag style="font-family:monospace;font-size:11px">  ProxyCommand cloudflared access ssh --hostname %h</n-tag>
+                        <n-button text size="small" @click="copyToClipboard('Host *.geocam.io\n  ProxyCommand cloudflared access ssh --hostname %h')">Copy</n-button>
+                      </n-space>
+                    </n-collapse-item>
+                  </n-collapse>
+                </div>
+
                 <n-divider style="margin:4px 0" />
                 <n-space :wrap="true">
-                  <n-button v-for="(url, key) in app.urls" :key="key" tag="a" :href="String(url)" target="_blank" :type="linkType(String(key))" size="small">
-                    Open {{ key }}
-                  </n-button>
+                  <template v-for="(url, key) in app.urls" :key="key">
+                    <n-button v-if="String(key) !== 'ssh'" tag="a" :href="String(url)" target="_blank" :type="linkType(String(key))" size="small">
+                      Open {{ key }}
+                    </n-button>
+                  </template>
                 </n-space>
               </n-space>
             </n-card>
@@ -142,12 +189,16 @@
       </template>
     </div>
 
-    <n-modal v-model:show="showDeleteConfirm">
-      <n-card style="width:400px;border-radius:16px" title="Confirm Destroy" :bordered="false">
-        <n-text>This will permanently destroy <strong>{{ app?.name }}</strong>, its container, Cloudflare tunnel, and GitHub repo. This cannot be undone.</n-text>
-        <n-space justify="end" style="margin-top:16px">
-          <n-button @click="showDeleteConfirm = false">Cancel</n-button>
-          <n-button type="error" :loading="deleting" @click="handleDelete">Destroy</n-button>
+    <n-modal v-model:show="showDeleteConfirm" :mask-closable="!deleting" @after-leave="destroyConfirmName = ''">
+      <n-card style="width:440px;border-radius:16px" title="Destroy App" :bordered="false">
+        <n-space vertical :size="16">
+          <n-text>This will permanently destroy the container, Cloudflare tunnel, and GitHub repo. This cannot be undone.</n-text>
+          <n-text depth="3" style="font-size:13px">Type <strong style="color:#ef4444">{{ app?.name }}</strong> to confirm:</n-text>
+          <n-input v-model:value="destroyConfirmName" placeholder="app name" @keydown.enter="destroyConfirmName === app?.name && handleDelete()" />
+          <n-space justify="end">
+            <n-button @click="showDeleteConfirm = false" :disabled="deleting">Cancel</n-button>
+            <n-button type="error" :loading="deleting" :disabled="destroyConfirmName !== app?.name" @click="handleDelete">Destroy</n-button>
+          </n-space>
         </n-space>
       </n-card>
     </n-modal>
@@ -155,7 +206,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, h } from 'vue'
+import { ref, computed, onMounted, onUnmounted, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage, NButton, NTag } from 'naive-ui'
 import { useAuthStore } from '../stores/auth'
@@ -180,7 +231,19 @@ const shareUsername = ref('')
 const sharing = ref(false)
 const logs = ref<any[]>([])
 const showDeleteConfirm = ref(false)
+const destroyConfirmName = ref('')
 const deleting = ref(false)
+
+interface DestroyStep { step: string; label: string; status: string; message: string }
+const destroySteps = ref<DestroyStep[]>([])
+let destroyEs: EventSource | null = null
+
+const DESTROY_LABELS: Record<string, string> = {
+  destroy_container: 'Stop & delete container',
+  destroy_cloudflare: 'Remove Cloudflare tunnel & DNS',
+  destroy_github: 'Delete GitHub repo',
+  destroy_db: 'Remove app record',
+}
 
 const appId = parseInt(route.params.id as string)
 const isOwnerOrAdmin = computed(() => app.value && (app.value.owner_id === auth.user?.id || auth.isAdmin))
@@ -190,7 +253,7 @@ const statusType = computed((): 'success' | 'info' | 'error' | 'default' | 'warn
 })
 
 function linkType(key: string): 'primary' | 'info' | 'success' | 'warning' | 'default' {
-  const m: Record<string, any> = { app: 'primary', desktop: 'info', code: 'success', ssh: 'warning' }
+  const m: Record<string, any> = { app: 'primary', desktop: 'info', code: 'success', terminal: 'warning' }
   return m[key] || 'default'
 }
 
@@ -203,12 +266,46 @@ async function copyAdminToken() {
   }
 }
 
+function subscribeDestroyProgress() {
+  destroyEs?.close()
+  destroySteps.value = []
+  destroyEs = new EventSource(auth.sseUrl(`/api/apps/${appId}/progress`))
+  destroyEs.onmessage = (e) => {
+    const msg = JSON.parse(e.data)
+    if (msg.step === 'stream_end') {
+      destroyEs?.close()
+      // App is gone from DB — go back to dashboard
+      message.success('App destroyed')
+      router.push('/')
+      return
+    }
+    if (msg.step === 'heartbeat') return
+    const existing = destroySteps.value.find(s => s.step === msg.step)
+    if (existing) {
+      existing.status = msg.status
+      existing.message = msg.message
+    } else {
+      destroySteps.value.push({
+        step: msg.step,
+        label: DESTROY_LABELS[msg.step] || msg.step,
+        status: msg.status,
+        message: msg.message,
+      })
+    }
+  }
+  destroyEs.onerror = () => destroyEs?.close()
+}
+
 async function loadApp() {
   loading.value = true
   try {
     const { data } = await api.get(`/apps/${appId}`)
     app.value = data
-    await loadShares()
+    if (data.status === 'destroying') {
+      subscribeDestroyProgress()
+    } else {
+      await loadShares()
+    }
   } catch { message.error('Failed to load app') }
   finally { loading.value = false }
 }
@@ -239,6 +336,11 @@ async function loadShares() {
 async function loadLogs() {
   try { const { data } = await api.get(`/apps/${appId}/logs`); logs.value = data }
   catch { message.error('Failed to load logs') }
+}
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text)
+  message.success('Copied to clipboard')
 }
 
 async function handleChangePassword() {
@@ -277,8 +379,9 @@ async function handleDelete() {
   deleting.value = true
   try {
     await api.delete(`/apps/${appId}`)
-    message.success('App destruction started')
-    router.push('/')
+    showDeleteConfirm.value = false
+    app.value = { ...app.value, status: 'destroying' }
+    subscribeDestroyProgress()
   } catch (e: any) {
     message.error(e.response?.data?.detail || 'Failed')
     deleting.value = false
@@ -321,4 +424,5 @@ const shareColumns = [
 ]
 
 onMounted(loadApp)
+onUnmounted(() => destroyEs?.close())
 </script>

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import Session, select
 from .database import get_session
@@ -30,14 +30,9 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-    session: Session = Depends(get_session),
-) -> User:
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+def _decode_user(raw_token: str, session: Session) -> User:
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(raw_token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -45,6 +40,28 @@ def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    session: Session = Depends(get_session),
+) -> User:
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return _decode_user(credentials.credentials, session)
+
+
+def get_current_user_sse(
+    token: Optional[str] = Query(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    session: Session = Depends(get_session),
+) -> User:
+    """Auth dependency for SSE endpoints — accepts token as query param since
+    EventSource cannot send Authorization headers."""
+    raw = token or (credentials.credentials if credentials else None)
+    if not raw:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return _decode_user(raw, session)
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:

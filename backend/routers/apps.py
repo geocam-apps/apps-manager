@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 from ..database import get_session
 from ..models import App, AppShare, User, JobLog
-from ..auth import get_current_user, require_admin
+from ..auth import get_current_user, get_current_user_sse, require_admin
 from ..services.provisioner import (
     provision_app, destroy_app, generate_password, generate_admin_token,
     get_or_create_queue, cleanup_queue,
@@ -26,12 +26,17 @@ def app_urls(name: str) -> dict:
         "app": f"https://{name}-app.{ZONE_NAME}",
         "desktop": f"https://{name}-desktop.{ZONE_NAME}",
         "code": f"https://{name}-code.{ZONE_NAME}",
-        "ssh": f"https://{name}-ssh.{ZONE_NAME}",
+        "terminal": f"https://{name}-terminal.{ZONE_NAME}",
+        "ssh": f"{name}-ssh.{ZONE_NAME}",
     }
 
 
 def app_to_dict(app: App, current_user: User) -> dict:
-    is_privileged = app.owner_id == current_user.id or current_user.is_admin
+    is_privileged = (
+        app.owner_id == current_user.id
+        or current_user.is_admin
+        or any(s.user_id == current_user.id or s.user_id is None for s in app.shares)
+    )
     return {
         "id": app.id,
         "name": app.name,
@@ -42,6 +47,8 @@ def app_to_dict(app: App, current_user: User) -> dict:
         "tunnel_id": app.tunnel_id,
         "github_repo": app.github_repo,
         "error_message": app.error_message,
+        "ssh_port": app.ssh_port,
+        "ssh_command": f"ssh -p {app.ssh_port} dev@{app.name}-ssh.{ZONE_NAME}" if app.ssh_port else None,
         "created_at": app.created_at.isoformat(),
         "owner_id": app.owner_id,
         "owner_username": app.owner.username if app.owner else None,
@@ -284,7 +291,7 @@ async def admin_proxy(
 @router.get("/{app_id}/progress")
 async def app_progress(
     app_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_sse),
     session: Session = Depends(get_session),
 ):
     app = session.get(App, app_id)
@@ -305,8 +312,8 @@ async def app_progress(
             data = json.dumps({"step": log.step, "status": log.status, "message": log.message})
             yield f"data: {data}\n\n"
 
-        # If still creating, stream live updates
-        if app.status in ("creating",):
+        # Stream live updates for active operations
+        if app.status in ("creating", "destroying"):
             q = get_or_create_queue(app_id)
             while True:
                 try:

@@ -2,9 +2,9 @@ import os
 import asyncio
 import random
 import secrets
-from sqlmodel import Session
+from sqlmodel import Session, select
 from ..database import engine
-from ..models import App, JobLog
+from ..models import App, AppShare, JobLog
 from . import container, cloudflare, github
 from dotenv import load_dotenv
 
@@ -79,7 +79,9 @@ async def provision_app(app_id: int) -> None:
             _log(s, app_id, step, status, msg)
 
     try:
-        # Step 1: Container
+        # Verify SSH connectivity before starting
+        await log_step("container", "running", "Checking SSH connection to Spark host...")
+        await container.run_ssh("echo ok", timeout=20)
         await log_step("container", "running", "Launching container...")
         await container.create_container(name)
         ip = await container.get_container_ip(name)
@@ -103,12 +105,13 @@ async def provision_app(app_id: int) -> None:
         # Step 4: Cloudflare
         await log_step("cloudflare", "running", "Creating tunnel...")
         tunnel_id, token = await cloudflare.create_tunnel(name)
-        await container.install_cloudflared(name, token)
+        # Save tunnel_id immediately so destroy can clean it up even if next step fails
         with Session(engine) as s:
             app = s.get(App, app_id)
             app.tunnel_id = tunnel_id
             s.add(app)
             s.commit()
+        await container.install_cloudflared(name, token)
         await log_step("cloudflare", "done", f"Tunnel {tunnel_id[:8]}... created")
 
         # Step 5: GitHub
@@ -127,6 +130,30 @@ async def provision_app(app_id: int) -> None:
         await container.setup_claude_code_web(name, password, ANTHROPIC_KEY)
         await log_step("claude_code_web", "done", "Claude Code Web running on port 8083")
 
+        # Step 7: SSH + browser terminal
+        await log_step("ssh_terminal", "running", "Setting up SSH access and browser terminal...")
+        ssh_port = 22100 + app_id
+        with Session(engine) as s:
+            app = s.get(App, app_id)
+            app.ssh_port = ssh_port
+            s.add(app)
+            s.commit()
+        container_ip_val = None
+        with Session(engine) as s:
+            app = s.get(App, app_id)
+            container_ip_val = app.container_ip
+        await container.setup_ssh_forward(name, container_ip_val, ssh_port)
+        spark_ipv6 = await container.get_spark_public_ipv6()
+        spark_ipv4 = await container.get_spark_public_ipv4()
+        await cloudflare.create_ssh_dns(name, spark_ipv6, spark_ipv4)
+        # Attempt Spectrum (Pro+ plan only) — falls back to direct AAAA if not available
+        try:
+            await cloudflare.create_spectrum_app(name, ssh_port, spark_ipv6)
+        except Exception:
+            pass  # stays on direct AAAA + high port until plan is upgraded
+        await container.install_wetty(name)
+        await log_step("ssh_terminal", "done", f"SSH on port {ssh_port}, terminal ready")
+
         # Final: mark running
         with Session(engine) as s:
             app = s.get(App, app_id)
@@ -136,7 +163,10 @@ async def provision_app(app_id: int) -> None:
         await log_step("done", "done", "App is ready!")
 
     except Exception as e:
-        error_msg = str(e)[:500]
+        import traceback
+        error_msg = str(e)[:800]
+        tb = traceback.format_exc()[-600:]
+        full_error = f"{error_msg}\n\nTraceback:\n{tb}"
         with Session(engine) as s:
             app = s.get(App, app_id)
             app.status = "error"
@@ -145,7 +175,7 @@ async def provision_app(app_id: int) -> None:
             s.commit()
         _push_progress(app_id, "error", "error", error_msg)
         with Session(engine) as s:
-            _log(s, app_id, "error", "error", error_msg)
+            _log(s, app_id, "error", "error", full_error)
     finally:
         # Send sentinel to close SSE stream
         q = _job_queues.get(app_id)
@@ -164,22 +194,58 @@ async def destroy_app(app_id: int) -> None:
         session.add(app)
         session.commit()
 
-    try:
-        await container.destroy_container(name)
-    except Exception:
-        pass
-    try:
-        if tunnel_id:
-            await cloudflare.delete_tunnel(tunnel_id, name)
-    except Exception:
-        pass
-    try:
-        await github.delete_repo(name)
-    except Exception:
-        pass
+    get_or_create_queue(app_id)
 
-    with Session(engine) as s:
-        app = s.get(App, app_id)
-        if app:
-            s.delete(app)
+    async def log_step(step: str, status: str, msg: str = ""):
+        _push_progress(app_id, step, status, msg)
+        with Session(engine) as s:
+            _log(s, app_id, step, status, msg)
+
+    try:
+        await log_step("destroy_container", "running", f"Stopping and deleting container {name}...")
+        try:
+            await container.destroy_container(name)
+            await log_step("destroy_container", "done", "Container removed")
+        except Exception as e:
+            await log_step("destroy_container", "done", f"Container not found or already gone ({e!s:.80})")
+
+        try:
+            await container.teardown_ssh_forward(name)
+        except Exception:
+            pass
+
+        await log_step("destroy_cloudflare", "running", "Removing Cloudflare tunnel and DNS records...")
+        try:
+            if tunnel_id:
+                await cloudflare.delete_tunnel(tunnel_id, name)
+                await log_step("destroy_cloudflare", "done", "Tunnel and DNS records deleted")
+            else:
+                await log_step("destroy_cloudflare", "done", "No tunnel to delete")
+        except Exception as e:
+            await log_step("destroy_cloudflare", "error", f"CF cleanup failed (manual cleanup may be needed): {e!s:.120}")
+
+        await log_step("destroy_github", "running", "Deleting GitHub repo...")
+        try:
+            await github.delete_repo(name)
+            await log_step("destroy_github", "done", "GitHub repo deleted")
+        except Exception as e:
+            await log_step("destroy_github", "done", f"Repo not found or already gone ({e!s:.80})")
+
+        await log_step("destroy_db", "running", "Removing app record...")
+        with Session(engine) as s:
+            for log in s.exec(select(JobLog).where(JobLog.app_id == app_id)).all():
+                s.delete(log)
+            for share in s.exec(select(AppShare).where(AppShare.app_id == app_id)).all():
+                s.delete(share)
+            app_rec = s.get(App, app_id)
+            if app_rec:
+                s.delete(app_rec)
             s.commit()
+        # App is gone from DB — push done to SSE queue only
+        _push_progress(app_id, "destroy_db", "done", "App fully destroyed")
+
+    finally:
+        q = _job_queues.get(app_id)
+        if q:
+            await q.put(None)
+        cleanup_queue(app_id)

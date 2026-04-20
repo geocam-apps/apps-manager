@@ -1,14 +1,33 @@
 import asyncio
+import os
 import re
 from typing import Optional
 
-SPARK_HOST = "spark"
+from dotenv import load_dotenv
+load_dotenv()
+
+SPARK_HOST = os.getenv("SPARK_HOST", "spark")
+SPARK_SSH_KEY = os.getenv("SPARK_SSH_KEY", "")
+
+def _ssh_args() -> list[str]:
+    args = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=15",
+    ]
+    if SPARK_SSH_KEY:
+        expanded = os.path.expanduser(SPARK_SSH_KEY)
+        if os.path.exists(expanded):
+            args += ["-i", expanded]
+    args.append(SPARK_HOST)
+    return args
 
 
 async def run_ssh(cmd: str, timeout: int = 300) -> str:
     """Run a command on the spark host via SSH."""
     proc = await asyncio.create_subprocess_exec(
-        "ssh", SPARK_HOST, cmd,
+        *_ssh_args(), cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -16,9 +35,19 @@ async def run_ssh(cmd: str, timeout: int = 300) -> str:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
-        raise RuntimeError(f"SSH command timed out: {cmd[:100]}")
+        raise RuntimeError(f"SSH timed out after {timeout}s running: {cmd[:200]}")
     if proc.returncode != 0:
-        raise RuntimeError(f"SSH command failed (rc={proc.returncode}): {stderr.decode()[:500]}")
+        out = stdout.decode().strip()
+        err = stderr.decode().strip()
+        parts = []
+        if err:
+            parts.append(f"stderr: {err[:1000]}")
+        if out:
+            parts.append(f"stdout: {out[:500]}")
+        detail = "\n".join(parts) or "(no output)"
+        raise RuntimeError(
+            f"SSH failed (rc={proc.returncode}) on: {cmd[:300]}\n{detail}"
+        )
     return stdout.decode().strip()
 
 
@@ -59,8 +88,9 @@ async def provision_base(name: str, password: str, anthropic_key: str, admin_tok
         f"incus exec {name} -- bash -c \"useradd -m -s /bin/bash -G sudo dev && echo 'dev:{password}' | chpasswd && echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev\"",
         f"incus exec {name} -- bash -c \"sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config && systemctl enable ssh && systemctl restart ssh\"",
         f"incus exec {name} -- bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y nvidia-utils-580 libnvidia-compute-580'",
+        # Install Claude Code system-wide; dev-user install is best-effort (may fail on arm64)
         f"incus exec {name} -- bash -c 'curl -fsSL https://claude.ai/install.sh | bash'",
-        f"incus exec {name} -- su - dev -c 'curl -fsSL https://claude.ai/install.sh | bash'",
+        f"incus exec {name} -- su - dev -c 'curl -fsSL https://claude.ai/install.sh | bash || true'",
         f"incus exec {name} -- bash -c \"echo 'export ANTHROPIC_API_KEY={anthropic_key}' >> /home/dev/.bashrc\"",
         f"incus exec {name} -- bash -c 'curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs'",
         f"incus exec {name} -- bash -c 'npm install -g claude-code-web'",
@@ -82,7 +112,7 @@ async def provision_base(name: str, password: str, anthropic_key: str, admin_tok
 async def provision_desktop(name: str, password: str) -> None:
     # Install X11 and deps
     await run_ssh(
-        f"incus exec {name} -- bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb openbox dbus dbus-x11 pulseaudio x11-common x11-utils x11-apps x11-xserver-utils xserver-xorg-core xclip nginx xterm build-essential python3-dev libffi-dev libpulse-dev portaudio19-dev libxkbcommon-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev pkg-config'",
+        f"incus exec {name} -- bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb xfce4 xfce4-terminal xfce4-goodies dbus dbus-x11 pulseaudio x11-common x11-utils x11-apps x11-xserver-utils xserver-xorg-core xclip nginx build-essential python3-dev libffi-dev libpulse-dev portaudio19-dev libxkbcommon-dev libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev pkg-config'",
         timeout=600,
     )
     # Push cached assets
@@ -128,13 +158,14 @@ async def _create_systemd_services(name: str, password: str) -> None:
     services = {
         "xvfb": (
             "[Unit]\nDescription=Xvfb\nAfter=network.target\n\n"
-            "[Service]\nUser=dev\nExecStart=Xvfb :1 -screen 0 1920x1080x24\nRestart=always\n\n"
+            "[Service]\nUser=dev\nExecStart=Xvfb :1 -screen 0 8192x4096x24\nRestart=always\n\n"
             "[Install]\nWantedBy=multi-user.target"
         ),
-        "openbox": (
-            "[Unit]\nDescription=Openbox\nAfter=xvfb.service\n\n"
-            "[Service]\nUser=dev\nEnvironment=DISPLAY=:1\n"
-            "ExecStart=/bin/sh -c 'dbus-launch openbox-session'\nRestart=always\n\n"
+        "xfce": (
+            "[Unit]\nDescription=XFCE Desktop\nAfter=xvfb.service\n\n"
+            "[Service]\nUser=dev\nEnvironment=DISPLAY=:1\nEnvironment=HOME=/home/dev\n"
+            "Environment=XDG_RUNTIME_DIR=/run/user/1000\nEnvironment=XDG_SESSION_TYPE=x11\n"
+            "ExecStart=dbus-launch --exit-with-session xfce4-session\nRestart=on-failure\nRestartSec=3\n\n"
             "[Install]\nWantedBy=multi-user.target"
         ),
         "pulseaudio-selkies": (
@@ -145,12 +176,12 @@ async def _create_systemd_services(name: str, password: str) -> None:
         ),
         "selkies": (
             "[Unit]\nDescription=Selkies Streaming\n"
-            "After=xvfb.service openbox.service pulseaudio-selkies.service\n"
-            "Requires=xvfb.service openbox.service pulseaudio-selkies.service\n\n"
+            "After=xvfb.service xfce.service pulseaudio-selkies.service\n"
+            "Requires=xvfb.service xfce.service pulseaudio-selkies.service\n\n"
             "[Service]\nUser=dev\nEnvironment=DISPLAY=:1\n"
             "Environment=PULSE_SERVER=unix:/run/user/1000/pulse/native\n"
             "ExecStartPre=/bin/sleep 3\n"
-            "ExecStart=/opt/selkies-venv/bin/selkies --addr=localhost --port=8082 --control-port=8084 --mode=websockets\n"
+            "ExecStart=/opt/selkies-venv/bin/selkies --addr=localhost --port=8082 --control-port=8084 --mode=websockets --encoder=jpeg --jpeg-quality=80\n"
             "Restart=always\n\n"
             "[Install]\nWantedBy=multi-user.target"
         ),
@@ -162,50 +193,31 @@ async def _create_systemd_services(name: str, password: str) -> None:
             timeout=30,
         )
 
-    # nginx config - write via heredoc approach using tee
     nginx_conf = (
-        f"server {{\n"
-        f"    listen 8081;\n"
-        f"    location / {{\n"
-        f'        auth_basic "Desktop";\n'
-        f"        auth_basic_user_file /etc/nginx/.htpasswd;\n"
-        f"        proxy_pass http://localhost:8082;\n"
-        f"        proxy_http_version 1.1;\n"
-        f"        proxy_set_header Upgrade $http_upgrade;\n"
-        f'        proxy_set_header Connection "upgrade";\n'
-        f"        proxy_set_header Host $host;\n"
-        f"    }}\n"
-        f"    location /websocket {{\n"
-        f'        auth_basic "Desktop";\n'
-        f"        auth_basic_user_file /etc/nginx/.htpasswd;\n"
-        f"        proxy_pass http://localhost:8082/websocket;\n"
-        f"        proxy_http_version 1.1;\n"
-        f"        proxy_set_header Upgrade $http_upgrade;\n"
-        f'        proxy_set_header Connection "upgrade";\n'
-        f"    }}\n"
-        f"    location /websockets {{\n"
-        f'        auth_basic "Desktop";\n'
-        f"        auth_basic_user_file /etc/nginx/.htpasswd;\n"
-        f"        proxy_pass http://localhost:8082/websockets;\n"
-        f"        proxy_http_version 1.1;\n"
-        f"        proxy_set_header Upgrade $http_upgrade;\n"
-        f'        proxy_set_header Connection "upgrade";\n'
-        f"    }}\n"
-        f"}}\n"
+        "server {\n"
+        "    listen 8081;\n\n"
+        '    auth_basic "Desktop";\n'
+        "    auth_basic_user_file /etc/nginx/.htpasswd;\n\n"
+        "    root /usr/share/selkies/web;\n"
+        "    index index.html;\n\n"
+        "    location / {\n"
+        "        try_files $uri $uri/ /index.html;\n"
+        "    }\n\n"
+        "    location ~* ^/(ws|websocket|websockets) {\n"
+        "        proxy_pass http://localhost:8082;\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_set_header Upgrade $http_upgrade;\n"
+        '        proxy_set_header Connection "upgrade";\n'
+        "        proxy_set_header Host $host;\n"
+        "        proxy_read_timeout 3600;\n"
+        "    }\n"
+        "}\n"
     )
-    # Write nginx config via python to avoid shell escaping issues
-    nginx_write_cmd = (
-        f"incus exec {name} -- python3 -c \""
-        f"content = open('/dev/stdin').read(); "
-        f"open('/etc/nginx/sites-available/{name}', 'w').write(content)"
-        f"\" <<'NGINX_EOF'\n{nginx_conf}\nNGINX_EOF"
-    )
-    # Use a simpler approach: write line by line via echo
+    import base64 as _b64nginx
+    encoded_nginx = _b64nginx.b64encode(nginx_conf.encode()).decode()
     await run_ssh(
         f"incus exec {name} -- bash -c '"
-        f"cat > /etc/nginx/sites-available/{name} << '\"'\"'NGINX_CONF'\"'\"'\n"
-        f"{nginx_conf}\n"
-        f"NGINX_CONF\n"
+        f"echo {encoded_nginx} | base64 -d > /etc/nginx/sites-available/{name} && "
         f"ln -sf /etc/nginx/sites-available/{name} /etc/nginx/sites-enabled/{name} && "
         f"rm -f /etc/nginx/sites-enabled/default'",
         timeout=30,
@@ -213,8 +225,8 @@ async def _create_systemd_services(name: str, password: str) -> None:
 
     await run_ssh(
         f"incus exec {name} -- systemctl daemon-reload && "
-        f"incus exec {name} -- systemctl enable xvfb openbox pulseaudio-selkies selkies nginx && "
-        f"incus exec {name} -- systemctl start xvfb openbox pulseaudio-selkies selkies nginx",
+        f"incus exec {name} -- systemctl enable xvfb xfce pulseaudio-selkies selkies nginx && "
+        f"incus exec {name} -- systemctl start xvfb xfce pulseaudio-selkies selkies nginx",
         timeout=60,
     )
 
@@ -264,16 +276,131 @@ async def setup_claude_code_web(name: str, password: str, anthropic_key: str) ->
     )
 
 
+async def get_spark_public_ipv6() -> str:
+    """Return the first globally-scoped IPv6 address on the Spark host."""
+    out = await run_ssh(
+        "ip -6 addr show scope global | grep 'inet6' | awk '{print $2}' | cut -d/ -f1 | head -1",
+        timeout=15,
+    )
+    return out.strip()
+
+
+async def get_spark_public_ipv4() -> str:
+    """Return the public IPv4 address of the Spark host."""
+    out = await run_ssh(
+        "curl -4 -s --max-time 5 ifconfig.me || ip -4 addr show scope global | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | head -1",
+        timeout=15,
+    )
+    return out.strip()
+
+
+async def setup_ssh_forward(name: str, container_ip: str, ssh_port: int) -> None:
+    """Install socat on Spark and create a systemd service forwarding ssh_port → container:22."""
+    await run_ssh("which socat > /dev/null 2>&1 || sudo apt-get install -y socat", timeout=120)
+    service = (
+        f"[Unit]\nDescription=SSH forward for {name}\nAfter=network.target\n\n"
+        f"[Service]\nExecStart=/usr/bin/socat TCP6-LISTEN:{ssh_port},fork,reuseaddr,ipv6only=0 "
+        f"TCP:{container_ip}:22\nRestart=always\n\n"
+        f"[Install]\nWantedBy=multi-user.target"
+    )
+    # Use base64 to avoid shell escaping issues when writing the service file
+    import base64 as _b64
+    encoded = _b64.b64encode(service.encode()).decode()
+    await run_ssh(
+        f"echo '{encoded}' | base64 -d | sudo tee /etc/systemd/system/ssh-forward-{name}.service > /dev/null"
+        f" && sudo systemctl daemon-reload && sudo systemctl enable --now ssh-forward-{name}",
+        timeout=30,
+    )
+
+
+async def teardown_ssh_forward(name: str) -> None:
+    """Stop and remove the socat SSH-forward systemd service for this app."""
+    await run_ssh(
+        f"sudo systemctl stop ssh-forward-{name} 2>/dev/null || true"
+        f" && sudo systemctl disable ssh-forward-{name} 2>/dev/null || true"
+        f" && sudo rm -f /etc/systemd/system/ssh-forward-{name}.service"
+        f" && sudo systemctl daemon-reload",
+        timeout=30,
+    )
+
+
+async def install_wetty(name: str) -> None:
+    """Install ttyd (apt) and expose a web terminal on port 8085 via nginx."""
+    await run_ssh(
+        f"incus exec {name} -- bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y ttyd'",
+        timeout=60,
+    )
+    service = (
+        "[Unit]\nDescription=Web Terminal (ttyd)\nAfter=network.target ssh.service\n\n"
+        "[Service]\n"
+        "ExecStart=/usr/bin/ttyd -p 7681 -i lo -O -W"
+        " -t backgroundColor=#1e1e2e -t foregroundColor=#cdd6f4"
+        " -t selectionBackground=#45475a -t cursorColor=#f5e0dc login\n"
+        "Restart=always\nRestartSec=5\n\n"
+        "[Install]\nWantedBy=multi-user.target"
+    )
+    import base64 as _b64
+    encoded = _b64.b64encode(service.encode()).decode()
+    await run_ssh(
+        f"incus exec {name} -- bash -c '"
+        f"echo {encoded} | base64 -d > /etc/systemd/system/ttyd.service"
+        f" && systemctl daemon-reload && systemctl enable --now ttyd'",
+        timeout=30,
+    )
+    # Add nginx vhost proxying port 8085 → ttyd on 8086 with WebSocket support
+    nginx_conf = (
+        "server {\n"
+        "    listen 8085;\n"
+        "    location / {\n"
+        "        proxy_pass http://127.0.0.1:7681;\n"
+        "        proxy_http_version 1.1;\n"
+        "        proxy_set_header Upgrade $http_upgrade;\n"
+        '        proxy_set_header Connection "upgrade";\n'
+        "        proxy_set_header Host $host;\n"
+        "        proxy_set_header X-Real-IP $remote_addr;\n"
+        "        proxy_read_timeout 3600;\n"
+        "    }\n"
+        "}\n"
+    )
+    encoded_nginx = _b64.b64encode(nginx_conf.encode()).decode()
+    await run_ssh(
+        f"incus exec {name} -- bash -c '"
+        f"echo {encoded_nginx} | base64 -d > /etc/nginx/sites-available/ttyd"
+        f" && ln -sf /etc/nginx/sites-available/ttyd /etc/nginx/sites-enabled/ttyd"
+        f" && nginx -t && systemctl reload nginx'",
+        timeout=30,
+    )
+
+
+async def run_ssh_raw(cmd: str, timeout: int = 30) -> tuple[int, str]:
+    """Run SSH, returning (returncode, stdout) without raising on non-zero exit."""
+    proc = await asyncio.create_subprocess_exec(
+        *_ssh_args(), cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return -1, ""
+    return proc.returncode or 0, stdout.decode().strip()
+
+
 async def get_service_statuses(name: str) -> dict:
     services = [
-        "xvfb", "openbox", "pulseaudio-selkies", "selkies",
-        "nginx", "cloudflared-tunnel", "app-webserver", "claude-code-web",
+        "xvfb", "xfce", "pulseaudio-selkies", "selkies",
+        "nginx", "cloudflared-tunnel", "app-webserver", "claude-code-web", "ttyd",
     ]
     result = {}
     for svc in services:
         try:
-            status = await run_ssh(f'incus exec {name} -- systemctl is-active {svc}')
-            result[svc] = status.strip()
+            # systemctl is-active: rc=0 active, rc=3 inactive/failed, rc=4 not found
+            rc, out = await run_ssh_raw(f'incus exec {name} -- systemctl is-active {svc}')
+            if rc == -1:
+                result[svc] = "timeout"
+            else:
+                result[svc] = out or ("active" if rc == 0 else "inactive")
         except Exception:
             result[svc] = "unknown"
     return result

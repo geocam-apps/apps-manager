@@ -2,8 +2,9 @@
   <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f0f13">
     <n-card style="width:400px;border-radius:16px" :bordered="false">
       <div style="text-align:center;margin-bottom:32px">
-        <n-text style="font-size:28px;font-weight:700;color:#6366f1">Apps Manager</n-text>
-        <n-text depth="3" style="display:block;margin-top:8px">Sign in to your account</n-text>
+        <img src="/geocam-logo.png" style="height:52px;width:auto;object-fit:contain;margin-bottom:10px" alt="Geocam" />
+        <n-text style="display:block;font-size:17px;font-weight:600;color:#a5b4fc">App Manager</n-text>
+        <n-text depth="3" style="display:block;margin-top:4px;font-size:13px">Sign in to your account</n-text>
       </div>
       <n-form @submit.prevent="handleLogin">
         <n-form-item label="Email">

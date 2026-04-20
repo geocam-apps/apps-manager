@@ -36,5 +36,9 @@ export const useAuthStore = defineStore('auth', () => {
     api.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
   }
 
-  return { token, user, isAdmin, setAuth, logout }
+  function sseUrl(path: string): string {
+    return `${path}?token=${encodeURIComponent(token.value ?? '')}`
+  }
+
+  return { token, user, isAdmin, setAuth, logout, sseUrl }
 })

@@ -5,7 +5,10 @@
       bordered
       style="padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;background:#16161a"
     >
-      <n-text style="font-size:20px;font-weight:700;color:#6366f1">Apps Manager</n-text>
+      <n-space align="center" :size="10">
+        <img src="/geocam-logo.png" style="height:32px;width:auto;object-fit:contain" alt="Geocam" />
+        <n-text style="font-size:16px;font-weight:600;color:#a5b4fc;letter-spacing:0.02em">App Manager</n-text>
+      </n-space>
       <n-space>
         <n-text depth="3">{{ auth.user?.username }}</n-text>
         <n-tag v-if="auth.isAdmin" type="warning" size="small">Admin</n-tag>
@@ -73,9 +76,9 @@
             />
           </n-timeline>
 
-          <n-space justify="space-between" style="margin-top:16px">
-            <n-button secondary @click="onCloseProgress">Close (runs in background)</n-button>
-            <n-button v-if="createDone" type="primary" @click="onCreateDone">Done</n-button>
+          <n-space justify="end" style="margin-top:16px">
+            <n-button v-if="createDone" type="primary" @click="onCreateDone">Done ✓</n-button>
+            <n-button v-else secondary @click="onCloseProgress">Continue in background</n-button>
           </n-space>
         </div>
       </n-card>
@@ -105,7 +108,10 @@
             :content="step.message"
           />
         </n-timeline>
-        <n-button style="margin-top:16px" @click="closeProgressModal">Close</n-button>
+        <n-space justify="end" style="margin-top:16px">
+          <n-button v-if="trackingDone" type="primary" @click="closeProgressModal">Done ✓</n-button>
+          <n-button v-else secondary @click="closeProgressModal">Close</n-button>
+        </n-space>
       </n-card>
     </n-modal>
   </div>
@@ -147,7 +153,7 @@ interface ProgressStep {
   message: string
 }
 
-const STEP_ORDER = ['container', 'base', 'desktop', 'cloudflare', 'github', 'claude_code_web', 'done']
+const STEP_ORDER = ['container', 'base', 'desktop', 'cloudflare', 'github', 'claude_code_web', 'ssh_terminal', 'done']
 const STEP_LABELS: Record<string, string> = {
   container: 'Create Container',
   base: 'Install Base Packages',
@@ -155,6 +161,7 @@ const STEP_LABELS: Record<string, string> = {
   cloudflare: 'Configure Cloudflare',
   github: 'Create GitHub Repo',
   claude_code_web: 'Setup Claude Code',
+  ssh_terminal: 'SSH & Browser Terminal',
   done: 'All Done',
 }
 
@@ -223,14 +230,14 @@ function subscribeProgress(
   onDone: (done: boolean) => void,
   setEs: (es: EventSource) => void,
 ) {
-  const es = new EventSource(`/api/apps/${appId}/progress`)
+  const es = new EventSource(auth.sseUrl(`/api/apps/${appId}/progress`))
   setEs(es)
   es.onmessage = (e) => {
     const msg = JSON.parse(e.data)
     if (msg.step === 'stream_end') { es.close(); onDone(true); return }
     applyProgressMsg(steps, msg)
   }
-  es.onerror = () => { es.close(); onDone(true) }
+  es.onerror = () => es.close()  // don't treat connection errors as completion
 }
 
 function onCloseProgress() {
