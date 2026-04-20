@@ -223,6 +223,15 @@ async def _create_systemd_services(name: str, password: str) -> None:
         timeout=30,
     )
 
+    # Disable XFCE screensaver/lock screen
+    await run_ssh(
+        f"incus exec {name} -- bash -c '"
+        "mkdir -p /home/dev/.config/autostart && "
+        "printf \"[Desktop Entry]\\nHidden=true\\n\" > /home/dev/.config/autostart/xfce4-screensaver.desktop && "
+        "chown -R dev:dev /home/dev/.config'",
+        timeout=15,
+    )
+
     await run_ssh(
         f"incus exec {name} -- systemctl daemon-reload && "
         f"incus exec {name} -- systemctl enable xvfb xfce pulseaudio-selkies selkies nginx && "
