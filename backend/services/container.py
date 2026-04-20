@@ -223,11 +223,13 @@ async def _create_systemd_services(name: str, password: str) -> None:
         timeout=30,
     )
 
-    # Disable XFCE screensaver/lock screen
+    # Disable XFCE screensaver/lock screen and tint2 (installed via xfce4-goodies)
     await run_ssh(
         f"incus exec {name} -- bash -c '"
         "mkdir -p /home/dev/.config/autostart && "
         "printf \"[Desktop Entry]\\nHidden=true\\n\" > /home/dev/.config/autostart/xfce4-screensaver.desktop && "
+        "printf \"[Desktop Entry]\\nHidden=true\\n\" > /home/dev/.config/autostart/tint2.desktop && "
+        "rm -f /etc/xdg/autostart/tint2.desktop && "
         "chown -R dev:dev /home/dev/.config'",
         timeout=15,
     )
