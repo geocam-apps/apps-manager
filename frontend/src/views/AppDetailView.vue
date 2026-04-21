@@ -60,7 +60,9 @@
                   <n-text depth="3" style="min-width:80px">Password:</n-text>
                   <n-tag v-if="showPassword" style="font-family:monospace">{{ app.password }}</n-tag>
                   <n-button v-else text size="small" @click="showPassword = true">Show</n-button>
-                  <n-button v-if="showPassword" text size="small" @click="copyToClipboard(app.password)">Copy</n-button>
+                  <n-button text size="small" @click="copyWithFeedback(app.password, 'password')" :style="copied === 'password' ? 'color:#22c55e' : ''">
+                    {{ copied === 'password' ? '✓ Copied' : 'Copy' }}
+                  </n-button>
                   <n-button v-if="isOwnerOrAdmin" text size="small" @click="handleChangePassword" :loading="changingPw">Regenerate</n-button>
                 </n-space>
 
@@ -69,7 +71,9 @@
                   <n-text depth="3" style="min-width:80px">Admin token:</n-text>
                   <n-tag v-if="showAdminToken" size="small" style="font-family:monospace;max-width:200px;overflow:hidden;text-overflow:ellipsis">{{ app.admin_token }}</n-tag>
                   <n-button v-else text size="small" @click="showAdminToken = true">Show</n-button>
-                  <n-button text size="small" @click="copyAdminToken">Copy</n-button>
+                  <n-button text size="small" @click="copyAdminToken" :style="copied === 'admintoken' ? 'color:#22c55e' : ''">
+                    {{ copied === 'admintoken' ? '✓ Copied' : 'Copy' }}
+                  </n-button>
                 </n-space>
                 <n-text v-if="isOwnerOrAdmin && app.admin_token" depth="3" style="font-size:11px">
                   Sent to container as APP_ADMIN_TOKEN env var
@@ -78,7 +82,9 @@
                 <!-- SSH access -->
                 <div v-if="app.ssh_command">
                   <n-space align="center">
-                    <n-button text size="small" @click="copyToClipboard(app.ssh_command)">Copy SSH command</n-button>
+                    <n-button text size="small" @click="copyWithFeedback(app.ssh_command, 'ssh')" :style="copied === 'ssh' ? 'color:#22c55e' : ''">
+                      {{ copied === 'ssh' ? '✓ Copied' : 'SSH' }}
+                    </n-button>
                     <n-button text size="small" tag="a" href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/" target="_blank" style="color:#6366f1">cloudflared ↗</n-button>
                   </n-space>
                 </div>
@@ -206,6 +212,13 @@ const loading = ref(true)
 const showPassword = ref(false)
 const showAdminToken = ref(false)
 const changingPw = ref(false)
+const copied = ref('')
+
+function copyWithFeedback(text: string, key: string) {
+  navigator.clipboard.writeText(text)
+  copied.value = key
+  setTimeout(() => { copied.value = '' }, 1500)
+}
 const services = ref<Record<string, string> | null>(null)
 const loadingStatus = ref(false)
 const stats = ref<any>(null)
@@ -246,7 +259,8 @@ function memColor(pct: number) { return pct > 80 ? '#ef4444' : pct > 60 ? '#f59e
 async function copyAdminToken() {
   if (app.value?.admin_token) {
     await navigator.clipboard.writeText(app.value.admin_token)
-    message.success('Admin token copied')
+    copied.value = 'admintoken'
+    setTimeout(() => { copied.value = '' }, 1500)
   }
 }
 
@@ -326,6 +340,7 @@ function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text)
   message.success('Copied to clipboard')
 }
+
 
 async function handleChangePassword() {
   changingPw.value = true

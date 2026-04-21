@@ -61,7 +61,9 @@
       <!-- SSH command -->
       <div v-if="app.ssh_command && app.status === 'running'" style="margin-top:2px">
         <n-space align="center">
-          <n-button text size="small" @click="copySSH">Copy SSH command</n-button>
+          <n-button text size="small" @click="copySSH" :style="copied === 'ssh' ? 'color:#22c55e' : ''">
+            {{ copied === 'ssh' ? '✓ Copied' : 'SSH' }}
+          </n-button>
           <n-button text size="small" tag="a" href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/" target="_blank" style="font-size:10px;color:#6366f1">cloudflared ↗</n-button>
         </n-space>
       </div>
@@ -72,7 +74,9 @@
           <n-text depth="3" style="font-size:12px">Password:</n-text>
           <n-tag v-if="showPassword" size="small" style="font-family:monospace">{{ app.password }}</n-tag>
           <n-button v-else text size="small" @click="showPassword = true">Show</n-button>
-          <n-button v-if="showPassword" text size="small" @click="copyPassword">Copy</n-button>
+          <n-button text size="small" @click="copyPassword" :style="copied === 'password' ? 'color:#22c55e' : ''">
+            {{ copied === 'password' ? '✓ Copied' : 'Copy' }}
+          </n-button>
           <n-button text size="small" @click="handleChangePassword" :loading="changingPw">Change</n-button>
         </n-space>
       </div>
@@ -98,6 +102,12 @@ const auth = useAuthStore()
 
 const showPassword = ref(false)
 const changingPw = ref(false)
+const copied = ref('')
+
+function flashCopied(key: string) {
+  copied.value = key
+  setTimeout(() => { copied.value = '' }, 1500)
+}
 const currentStep = ref('Provisioning...')
 const progressPct = ref(5)
 
@@ -150,12 +160,12 @@ function linkType(key: string): 'primary' | 'info' | 'success' | 'warning' | 'de
 
 function copyPassword() {
   navigator.clipboard.writeText(props.app.password)
-  message.success('Password copied')
+  flashCopied('password')
 }
 
 function copySSH() {
   navigator.clipboard.writeText(props.app.ssh_command)
-  message.success('SSH command copied')
+  flashCopied('ssh')
 }
 
 async function handleChangePassword() {
