@@ -62,8 +62,9 @@
       <div v-if="app.ssh_command && app.status === 'running'" style="margin-top:2px">
         <n-space align="center">
           <n-text depth="3" style="font-size:12px">SSH:</n-text>
-          <n-tag size="small" style="font-family:monospace;font-size:11px">{{ app.ssh_command }}</n-tag>
+          <n-tag size="small" style="font-family:monospace;font-size:10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ app.ssh_command }}</n-tag>
           <n-button text size="small" @click="copySSH">Copy</n-button>
+          <n-button text size="small" tag="a" href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/" target="_blank" style="font-size:10px;color:#6366f1">cloudflared ↗</n-button>
         </n-space>
       </div>
 

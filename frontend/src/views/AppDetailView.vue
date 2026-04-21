@@ -77,26 +77,15 @@
 
                 <!-- SSH access -->
                 <div v-if="app.ssh_command">
-                  <n-text depth="3" style="font-size:12px;display:block;margin-bottom:6px">SSH (native client):</n-text>
+                  <n-space align="center" style="margin-bottom:6px">
+                    <n-text depth="3" style="font-size:12px">SSH (requires</n-text>
+                    <n-button text size="small" tag="a" href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/" target="_blank" style="font-size:12px;color:#6366f1;padding:0">cloudflared ↗</n-button>
+                    <n-text depth="3" style="font-size:12px">):</n-text>
+                  </n-space>
                   <n-space align="center" style="margin-bottom:4px">
-                    <n-tag style="font-family:monospace;font-size:12px">{{ app.ssh_command }}</n-tag>
+                    <n-tag style="font-family:monospace;font-size:11px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ app.ssh_command }}</n-tag>
                     <n-button text size="small" @click="copyToClipboard(app.ssh_command)">Copy</n-button>
                   </n-space>
-                  <n-collapse>
-                    <n-collapse-item title="If SSH doesn't resolve, use Cloudflare tunnel" name="cf-ssh">
-                      <n-text depth="3" style="font-size:12px;display:block;margin-bottom:6px">
-                        Install cloudflared once: <n-tag size="small" style="font-family:monospace">brew install cloudflare/cloudflare/cloudflared</n-tag>
-                      </n-text>
-                      <n-text depth="3" style="font-size:12px;display:block;margin-bottom:4px">Then add to ~/.ssh/config:</n-text>
-                      <n-space align="center">
-                        <n-tag style="font-family:monospace;font-size:11px">Host *.geocam.io</n-tag>
-                      </n-space>
-                      <n-space align="center" style="margin-top:2px">
-                        <n-tag style="font-family:monospace;font-size:11px">  ProxyCommand cloudflared access ssh --hostname %h</n-tag>
-                        <n-button text size="small" @click="copyToClipboard('Host *.geocam.io\n  ProxyCommand cloudflared access ssh --hostname %h')">Copy</n-button>
-                      </n-space>
-                    </n-collapse-item>
-                  </n-collapse>
                 </div>
 
                 <n-divider style="margin:4px 0" />
