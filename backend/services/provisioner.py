@@ -143,16 +143,8 @@ async def provision_app(app_id: int) -> None:
             app = s.get(App, app_id)
             container_ip_val = app.container_ip
         await container.setup_ssh_forward(name, container_ip_val, ssh_port)
-        spark_ipv6 = await container.get_spark_public_ipv6()
-        spark_ipv4 = await container.get_spark_public_ipv4()
-        await cloudflare.create_ssh_dns(name, spark_ipv6, spark_ipv4)
-        # Attempt Spectrum (Pro+ plan only) — falls back to direct AAAA if not available
-        try:
-            await cloudflare.create_spectrum_app(name, ssh_port, spark_ipv6)
-        except Exception:
-            pass  # stays on direct AAAA + high port until plan is upgraded
         await container.install_wetty(name)
-        await log_step("ssh_terminal", "done", f"SSH on port {ssh_port}, terminal ready")
+        await log_step("ssh_terminal", "done", f"SSH via cloudflared tunnel, browser terminal ready")
 
         # Final: mark running
         with Session(engine) as s:

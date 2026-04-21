@@ -48,7 +48,7 @@ def app_to_dict(app: App, current_user: User) -> dict:
         "github_repo": app.github_repo,
         "error_message": app.error_message,
         "ssh_port": app.ssh_port,
-        "ssh_command": f"ssh -p {app.ssh_port} dev@{app.name}-ssh.{ZONE_NAME}" if app.ssh_port else None,
+        "ssh_command": f'ssh -o ProxyCommand="cloudflared access ssh --hostname {app.name}-ssh.{ZONE_NAME}" dev@{app.name}-ssh.{ZONE_NAME}',
         "created_at": app.created_at.isoformat(),
         "owner_id": app.owner_id,
         "owner_username": app.owner.username if app.owner else None,

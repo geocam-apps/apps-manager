@@ -59,7 +59,7 @@ async def create_tunnel(name: str) -> tuple[str, str]:
         r.raise_for_status()
         token = r.json()["result"]
 
-        for sub in [f"{name}-app", f"{name}-desktop", f"{name}-code", f"{name}-terminal"]:
+        for sub in [f"{name}-app", f"{name}-desktop", f"{name}-code", f"{name}-terminal", f"{name}-ssh"]:
             await client.post(
                 f"{ZONE_BASE}/dns_records",
                 headers=_headers(),
