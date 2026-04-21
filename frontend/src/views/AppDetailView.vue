@@ -77,14 +77,9 @@
 
                 <!-- SSH access -->
                 <div v-if="app.ssh_command">
-                  <n-space align="center" style="margin-bottom:6px">
-                    <n-text depth="3" style="font-size:12px">SSH (requires</n-text>
-                    <n-button text size="small" tag="a" href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/" target="_blank" style="font-size:12px;color:#6366f1;padding:0">cloudflared ↗</n-button>
-                    <n-text depth="3" style="font-size:12px">):</n-text>
-                  </n-space>
-                  <n-space align="center" style="margin-bottom:4px">
-                    <n-tag style="font-family:monospace;font-size:11px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ app.ssh_command }}</n-tag>
-                    <n-button text size="small" @click="copyToClipboard(app.ssh_command)">Copy</n-button>
+                  <n-space align="center">
+                    <n-button text size="small" @click="copyToClipboard(app.ssh_command)">Copy SSH command</n-button>
+                    <n-button text size="small" tag="a" href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/" target="_blank" style="color:#6366f1">cloudflared ↗</n-button>
                   </n-space>
                 </div>
 
