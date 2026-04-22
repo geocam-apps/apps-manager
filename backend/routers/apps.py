@@ -416,6 +416,47 @@ def remove_share(
     return {"message": "Share removed"}
 
 
+class TransferRequest(BaseModel):
+    username: str
+
+
+@router.post("/{app_id}/transfer")
+def transfer_ownership(
+    app_id: int,
+    req: TransferRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    app = session.get(App, app_id)
+    if not app:
+        raise HTTPException(404, "App not found")
+    if app.owner_id != user.id and not user.is_admin:
+        raise HTTPException(403, "Only owner or admin can transfer ownership")
+
+    new_owner = session.exec(select(User).where(User.username == req.username)).first()
+    if not new_owner:
+        raise HTTPException(404, f"User '{req.username}' not found")
+    if new_owner.id == app.owner_id:
+        raise HTTPException(400, "User is already the owner")
+
+    previous_owner_id = app.owner_id
+
+    # Transfer ownership
+    app.owner_id = new_owner.id
+    session.add(app)
+
+    # Auto-share with previous owner (if not already shared)
+    existing = session.exec(
+        select(AppShare).where(AppShare.app_id == app_id, AppShare.user_id == previous_owner_id)
+    ).first()
+    if not existing:
+        session.add(AppShare(app_id=app_id, user_id=previous_owner_id))
+
+    session.commit()
+    session.refresh(app)
+    return {"owner_username": new_owner.username, "shared_with": user.username}
+
+
 @router.get("/{app_id}/shares")
 def list_shares(
     app_id: int,

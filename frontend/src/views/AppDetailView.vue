@@ -144,11 +144,18 @@
           <n-gi :span="2" v-if="isOwnerOrAdmin">
             <n-card title="Sharing" :bordered="false" style="background:#1c1c23;border-radius:12px">
               <n-space style="margin-bottom:16px">
-                <n-input v-model:value="shareUsername" placeholder="Username (empty = everyone)" style="width:240px" size="small" />
-                <n-button type="primary" size="small" @click="handleShare" :loading="sharing">Share with User</n-button>
+                <n-input v-model:value="shareUsername" placeholder="Username (empty = everyone)" style="width:200px" size="small" />
+                <n-button type="primary" size="small" @click="handleShare" :loading="sharing">Share</n-button>
                 <n-button size="small" @click="handleShareEveryone" :loading="sharing">Share with Everyone</n-button>
               </n-space>
-              <n-data-table :columns="shareColumns" :data="shares" :bordered="false" size="small" />
+              <n-data-table :columns="shareColumns" :data="shares" :bordered="false" size="small" style="margin-bottom:20px" />
+
+              <n-divider style="margin:0 0 16px" />
+              <n-text depth="3" style="font-size:12px;display:block;margin-bottom:10px">Transfer Ownership</n-text>
+              <n-space>
+                <n-input v-model:value="transferUsername" placeholder="New owner username" style="width:200px" size="small" />
+                <n-button type="warning" size="small" @click="handleTransfer" :loading="transferring">Transfer</n-button>
+              </n-space>
             </n-card>
           </n-gi>
 
@@ -225,6 +232,8 @@ const stats = ref<any>(null)
 const loadingStats = ref(false)
 const shares = ref<any[]>([])
 const shareUsername = ref('')
+const transferUsername = ref('')
+const transferring = ref(false)
 const sharing = ref(false)
 const logs = ref<any[]>([])
 const showDeleteConfirm = ref(false)
@@ -372,6 +381,19 @@ async function handleShareEveryone() {
     message.success('Shared with everyone!')
   } catch (e: any) { message.error(e.response?.data?.detail || 'Failed') }
   finally { sharing.value = false }
+}
+
+async function handleTransfer() {
+  if (!transferUsername.value.trim()) return
+  transferring.value = true
+  try {
+    const { data } = await api.post(`/apps/${appId}/transfer`, { username: transferUsername.value.trim() })
+    transferUsername.value = ''
+    await loadApp()
+    await loadShares()
+    message.success(`Ownership transferred to ${data.owner_username}. You now have shared access.`)
+  } catch (e: any) { message.error(e.response?.data?.detail || 'Failed to transfer') }
+  finally { transferring.value = false }
 }
 
 async function handleDelete() {
