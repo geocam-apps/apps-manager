@@ -58,11 +58,14 @@
         </template>
       </n-space>
 
-      <!-- SSH command -->
+      <!-- SSH / SFTP commands -->
       <div v-if="app.ssh_command && app.status === 'running'" style="margin-top:2px">
         <n-space align="center">
           <n-button text size="small" @click="copySSH" :style="copied === 'ssh' ? 'color:#22c55e' : ''">
             {{ copied === 'ssh' ? '✓ Copied' : 'SSH' }}
+          </n-button>
+          <n-button text size="small" @click="copySFTP" :style="copied === 'sftp' ? 'color:#22c55e' : ''">
+            {{ copied === 'sftp' ? '✓ Copied' : 'SFTP' }}
           </n-button>
           <n-button text size="small" tag="a" href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/" target="_blank" style="font-size:10px;color:#6366f1">cloudflared ↗</n-button>
         </n-space>
@@ -166,6 +169,11 @@ function copyPassword() {
 function copySSH() {
   navigator.clipboard.writeText(props.app.ssh_command)
   flashCopied('ssh')
+}
+
+function copySFTP() {
+  navigator.clipboard.writeText(props.app.sftp_command)
+  flashCopied('sftp')
 }
 
 async function handleChangePassword() {

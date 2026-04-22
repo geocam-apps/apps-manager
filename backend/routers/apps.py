@@ -53,6 +53,11 @@ def app_to_dict(app: App, current_user: User) -> dict:
             if is_privileged and app.password
             else f'ssh -o ProxyCommand="cloudflared access ssh --hostname {app.name}-ssh.{ZONE_NAME}" dev@{app.name}-ssh.{ZONE_NAME}'
         ),
+        "sftp_command": (
+            f'sshpass -p {app.password} sftp -o ProxyCommand="cloudflared access ssh --hostname {app.name}-ssh.{ZONE_NAME}" dev@{app.name}-ssh.{ZONE_NAME}'
+            if is_privileged and app.password
+            else f'sftp -o ProxyCommand="cloudflared access ssh --hostname {app.name}-ssh.{ZONE_NAME}" dev@{app.name}-ssh.{ZONE_NAME}'
+        ),
         "created_at": app.created_at.isoformat(),
         "owner_id": app.owner_id,
         "owner_username": app.owner.username if app.owner else None,

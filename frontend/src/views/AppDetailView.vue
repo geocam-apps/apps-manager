@@ -79,11 +79,14 @@
                   Sent to container as APP_ADMIN_TOKEN env var
                 </n-text>
 
-                <!-- SSH access -->
+                <!-- SSH / SFTP access -->
                 <div v-if="app.ssh_command">
                   <n-space align="center">
                     <n-button text size="small" @click="copyWithFeedback(app.ssh_command, 'ssh')" :style="copied === 'ssh' ? 'color:#22c55e' : ''">
                       {{ copied === 'ssh' ? '✓ Copied' : 'SSH' }}
+                    </n-button>
+                    <n-button text size="small" @click="copyWithFeedback(app.sftp_command, 'sftp')" :style="copied === 'sftp' ? 'color:#22c55e' : ''">
+                      {{ copied === 'sftp' ? '✓ Copied' : 'SFTP' }}
                     </n-button>
                     <n-button text size="small" tag="a" href="https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/" target="_blank" style="color:#6366f1">cloudflared ↗</n-button>
                   </n-space>
