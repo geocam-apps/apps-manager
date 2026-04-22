@@ -84,7 +84,7 @@ async def get_container_ip(name: str) -> Optional[str]:
     return None
 
 
-async def provision_base(name: str, password: str, anthropic_key: str, admin_token: str = "") -> None:
+async def provision_base(name: str, password: str, admin_token: str = "") -> None:
     cmds = [
         f"incus exec {name} -- bash -c \"echo 'nameserver 1.1.1.1' > /etc/resolv.conf\"",
         f"incus exec {name} -- bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server sudo curl wget vim nano htop ca-certificates tmux bash-completion git python3 python3-pip python3-venv apache2-utils'",
@@ -94,7 +94,6 @@ async def provision_base(name: str, password: str, anthropic_key: str, admin_tok
         # Install Claude Code system-wide; dev-user install is best-effort (may fail on arm64)
         f"incus exec {name} -- bash -c 'curl -fsSL https://claude.ai/install.sh | bash'",
         f"incus exec {name} -- su - dev -c 'curl -fsSL https://claude.ai/install.sh | bash || true'",
-        f"incus exec {name} -- bash -c \"echo 'export ANTHROPIC_API_KEY={anthropic_key}' >> /home/dev/.bashrc\"",
         f"incus exec {name} -- bash -c 'curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs'",
         f"incus exec {name} -- bash -c 'npm install -g claude-code-web'",
         f"incus exec {name} -- bash -c 'mkdir -p /etc/systemd/network/10-netplan-eth0.network.d && printf \"[Network]\\nKeepConfiguration=dhcp\\n\" > /etc/systemd/network/10-netplan-eth0.network.d/keep.conf && systemctl reload systemd-networkd'",
@@ -271,11 +270,10 @@ async def install_cloudflared(name: str, token: str) -> None:
     )
 
 
-async def setup_claude_code_web(name: str, password: str, anthropic_key: str) -> None:
+async def setup_claude_code_web(name: str, password: str) -> None:
     service = (
         "[Unit]\nDescription=Claude Code Web\nAfter=network.target\n\n"
         f"[Service]\nUser=dev\nWorkingDirectory=/home/dev/{name}\n"
-        f"Environment=ANTHROPIC_API_KEY={anthropic_key}\n"
         f"ExecStart=/usr/bin/npx claude-code-web --port 8083 --auth {password} --no-open\n"
         "Restart=always\n\n"
         "[Install]\nWantedBy=multi-user.target"

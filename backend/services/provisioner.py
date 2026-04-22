@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 WORD_LIST = [
     "tiger", "castle", "forest", "river", "stone", "cloud", "eagle", "maple",
@@ -94,7 +93,7 @@ async def provision_app(app_id: int) -> None:
 
         # Step 2: Base packages
         await log_step("base", "running", "Installing packages...")
-        await container.provision_base(name, password, ANTHROPIC_KEY, admin_token)
+        await container.provision_base(name, password, admin_token)
         await log_step("base", "done", "Base packages installed")
 
         # Step 3: Desktop
@@ -127,7 +126,7 @@ async def provision_app(app_id: int) -> None:
 
         # Step 6: Claude Code Web
         await log_step("claude_code_web", "running", "Starting Claude Code Web...")
-        await container.setup_claude_code_web(name, password, ANTHROPIC_KEY)
+        await container.setup_claude_code_web(name, password)
         await log_step("claude_code_web", "done", "Claude Code Web running on port 8083")
 
         # Step 7: SSH + browser terminal
