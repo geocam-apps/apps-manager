@@ -4,6 +4,7 @@ import LoginView from '../views/LoginView.vue'
 import RegisterView from '../views/RegisterView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import AppDetailView from '../views/AppDetailView.vue'
+import ApiTokensView from '../views/ApiTokensView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -12,6 +13,7 @@ const router = createRouter({
     { path: '/register', component: RegisterView, meta: { public: true } },
     { path: '/', component: DashboardView },
     { path: '/apps/:id', component: AppDetailView },
+    { path: '/api-tokens', component: ApiTokensView },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

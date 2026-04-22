@@ -11,7 +11,7 @@ from .database import engine, create_db_and_tables
 from .models import User
 from .auth import hash_password
 from .admin import UserAdmin, AppAdmin, AppShareAdmin, JobLogAdmin
-from .routers import auth, apps
+from .routers import auth, apps, tokens
 
 load_dotenv()
 
@@ -50,6 +50,7 @@ admin.add_view(JobLogAdmin)
 # API routers
 app.include_router(auth.router)
 app.include_router(apps.router)
+app.include_router(tokens.router)
 
 # Serve frontend
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")

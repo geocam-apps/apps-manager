@@ -12,6 +12,7 @@
       <n-space>
         <n-text depth="3">{{ auth.user?.username }}</n-text>
         <n-tag v-if="auth.isAdmin" type="warning" size="small">Admin</n-tag>
+        <n-button text @click="$router.push('/api-tokens')" style="color:#a5b4fc">API Tokens</n-button>
         <n-button text @click="handleLogout">Logout</n-button>
       </n-space>
     </n-layout-header>

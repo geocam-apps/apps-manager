@@ -22,6 +22,19 @@ def _migrate():
         for stmt in [
             "ALTER TABLE app ADD COLUMN admin_token TEXT",
             "ALTER TABLE app ADD COLUMN ssh_port INTEGER",
+            """CREATE TABLE IF NOT EXISTS apitoken (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER NOT NULL REFERENCES user(id),
+                name TEXT NOT NULL,
+                token_hash TEXT NOT NULL,
+                token_prefix TEXT NOT NULL,
+                token_suffix TEXT NOT NULL,
+                created_at DATETIME NOT NULL,
+                last_used_at DATETIME,
+                expires_at DATETIME,
+                revoked_at DATETIME
+            )""",
+            "CREATE INDEX IF NOT EXISTS ix_apitoken_token_hash ON apitoken(token_hash)",
         ]:
             try:
                 conn.execute(stmt)

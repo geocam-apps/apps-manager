@@ -14,6 +14,7 @@ class User(SQLModel, table=True):
 
     apps: List["App"] = Relationship(back_populates="owner")
     received_shares: List["AppShare"] = Relationship(back_populates="user")
+    api_tokens: List["ApiToken"] = Relationship(back_populates="owner")
 
 
 class App(SQLModel, table=True):
@@ -43,6 +44,21 @@ class AppShare(SQLModel, table=True):
 
     app: Optional[App] = Relationship(back_populates="shares")
     user: Optional[User] = Relationship(back_populates="received_shares")
+
+
+class ApiToken(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    owner_id: int = Field(foreign_key="user.id")
+    name: str
+    token_hash: str = Field(index=True)   # SHA-256 hex — never the raw value
+    token_prefix: str                      # "gm_pat_" + first 7 random chars
+    token_suffix: str                      # last 4 chars
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_used_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+
+    owner: Optional[User] = Relationship(back_populates="api_tokens")
 
 
 class JobLog(SQLModel, table=True):
