@@ -15,6 +15,9 @@ def _ssh_args() -> list[str]:
         "-o", "StrictHostKeyChecking=no",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=15",
+        "-o", "ServerAliveInterval=30",
+        "-o", "ServerAliveCountMax=20",
+        "-o", "TCPKeepAlive=yes",
     ]
     if SPARK_SSH_KEY:
         expanded = os.path.expanduser(SPARK_SSH_KEY)
